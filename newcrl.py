@@ -43,7 +43,10 @@ class SimpleSwitch13(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
+        self.mac_to_port = {1: {"00:00:00:00:00:01":1, "00:00:00:00:00:02":2}}
         self.arpTable = {}
+        self.arpTable[HOST_IPADDR1] = "00:00:00:00:00:01"
+        self.arpTable[HOST_IPADDR2] = "00:00:00:00:00:02"
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -160,7 +163,6 @@ class SimpleSwitch13(app_manager.RyuApp):
         in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
-        self.logger.info('%s'%eth.ethertype)
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
@@ -179,24 +181,17 @@ class SimpleSwitch13(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ipv4_pak = pkt.get_protocol(ipv4.ipv4)
             icmp_pak = pkt.get_protocol(icmp.icmp)
+            dst_ip = ipv4_pak.dst
             # self.logger.info('packet_in_handler: --> %s'%ipv4_pak)
-            
-            
-            
-            if dst == ROUTER_MACADDR1:
-                out_port = 2
-                actions.append( parser.OFPActionSetField(eth_src=ROUTER_MACADDR2) )
-                actions.append( parser.OFPActionSetField(eth_dst='00:00:00:00:00:02') )
-
-            elif dst == ROUTER_MACADDR2:
-                out_port = 1
-                actions.append( parser.OFPActionSetField(eth_src=ROUTER_MACADDR1) )
-                actions.append( parser.OFPActionSetField(eth_dst='00:00:00:00:00:01') )
+            if dst_ip in self.arpTable:
+                dst_mac = self.arpTable[dst_ip]
+                out_port = self.mac_to_port[dpid][dst_mac]
+                # actions.append( parser.OFPActionSetField(eth_src=) )
+                self.logger.info(out_port)
+                actions.append( parser.OFPActionSetField(eth_dst=dst_mac) )
             else:
                 self.logger.info('Not working')
                 return
-
-            
             actions.append(parser.OFPActionOutput(port=out_port))
             # transfer ICMP packet, in_port = 1 
             out = parser.OFPPacketOut(datapath = datapath,
