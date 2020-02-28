@@ -28,8 +28,6 @@ from ryu.lib.packet.arp import arp
 from ryu.lib.packet.packet import Packet
 import array
 
-HOST_IPADDR1 = "192.168.1.1"
-HOST_IPADDR2 = "192.168.2.2"
 ROUTER_IPADDR1 = "192.168.1.10"
 ROUTER_IPADDR2 = "192.168.2.10"
 ROUTER_MACADDR1 = "00:00:00:00:00:11"
@@ -43,7 +41,6 @@ class SimpleSwitch13(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.mac_to_port = {1: {"00:00:00:00:00:01":1, "00:00:00:00:00:02":2}}
         self.arpTable = {}
 
 
@@ -118,7 +115,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         p.add_protocol(e)
         p.add_protocol(a)
         p.serialize()
-        actions = [datapath.ofproto_parser.OFPActionOutput(outPort, 0)]
+        actions = [datapath.ofproto_parser.OFPActionOutput(outPort)]
         #this packet is constructed by tyhe controller, so the in_port is OFPP_CONTROLLER.
         out = datapath.ofproto_parser.OFPPacketOut(
             datapath=datapath,
@@ -163,27 +160,14 @@ class SimpleSwitch13(app_manager.RyuApp):
                 dst_mac = self.arpTable[dst_ip]
                 out_port = self.mac_to_port[dpid][dst_mac]
                 # actions.append( parser.OFPActionSetField(eth_src=) )
-                # self.logger.info(out_port)
                 actions.append( parser.OFPActionSetField(eth_dst=dst_mac) )                
             else:
-                srcMac = ROUTER_MACADDR2
-                srcIp = ROUTER_IPADDR2
+                srcMac = "00:00:00:00:00:88"
+                srcIp = "88.88.88.88"
                 dstMac = "ff:ff:ff:ff:ff:ff"
                 dstIp = dst_ip
-                outPort = 2
+                outPort = ofproto.OFPP_FLOOD
                 self.send_arp(datapath, 1, srcMac, srcIp, dstMac, dstIp, outPort)
-                # pkt = packet.Packet()
-                # pkt.add_protocol(ethernet.ethernet(ethertype=ether_types.ETH_TYPE_ARP,dst = "ff:ff:ff:ff:ff:ff",src=ROUTER_MACADDR2))
-                # pkt.add_protocol(arp.arp(opcode=arp.ARP_REQUEST,src_mac = ROUTER_MACADDR2,src_ip=ROUTER_IPADDR2,dst_mac='00:00:00:00:00:00',dst_ip=dst_ip))
-                # pkt.serialize()
-                # if pkt.get_protocol(icmp.icmp):
-                #     self.logger.info("Send ICMP_ECHO_REPLY")
-                # if  pkt.get_protocol(arp.arp):
-                #     self.logger.info("Send ARP_REPLY")
-                # data = pkt.data
-                # actions = [parser.OFPActionOutput(port=2)]
-                # out = parser.OFPPacketOut(datapath=datapath,buffer_id=ofproto.OFP_NO_BUFFER,in_port=ofproto.OFPP_CONTROLLER,actions=actions,data=data)
-                # datapath.send_msg(out)
                 return
             actions.append(parser.OFPActionOutput(port=out_port))
             # transfer ICMP packet, in_port = 1 
