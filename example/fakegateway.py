@@ -28,10 +28,12 @@ from ryu.lib.packet.arp import arp
 from ryu.lib.packet.packet import Packet
 import array
 
-ROUTER_IPADDR1 = "192.168.1.10"
-ROUTER_IPADDR2 = "192.168.2.10"
-ROUTER_MACADDR1 = "00:00:00:00:00:11"
-ROUTER_MACADDR2 = "00:00:00:00:00:22"
+HOST_IPADDR1 = "10.1.1.2"
+HOST_IPADDR2 = "10.1.4.2"
+ROUTER_IPADDR1 = "10.1.1.1"
+ROUTER_IPADDR2 = "10.1.4.1"
+ROUTER_MACADDR1 = "00:00:00:00:00:01"
+ROUTER_MACADDR2 = "00:00:00:00:00:02"
 ROUTER_PORT1 = 1
 ROUTER_PORT2 = 2
 
@@ -41,8 +43,7 @@ class SimpleSwitch13(app_manager.RyuApp):
     def __init__(self, *args, **kwargs):
         super(SimpleSwitch13, self).__init__(*args, **kwargs)
         self.mac_to_port = {}
-        self.arpTable = {}
-
+        self.arpTable = {}#ip to mac
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures, CONFIG_DISPATCHER)
     def switch_features_handler(self, ev):
@@ -73,28 +74,24 @@ class SimpleSwitch13(app_manager.RyuApp):
                                 match=match, instructions=inst)
         datapath.send_msg(mod)
 
-    def handle_arp(self,datapath,packet,etherFrame,inPort):
+    def receive_arp(self,datapath,packet,etherFrame,inPort):
         arpPacket = packet.get_protocol(arp)
-        if arpPacket.opcode == 1:
-            arp_req_dstIp = arpPacket.dst_ip
-            # self.logger.debug('received ARP Request %s => %s (port%d)'%(etherFrame.src,etherFrame.dst,inPort))
-            self.reply_arp(datapath,etherFrame,arpPacket,arp_req_dstIp,inPort)
-        elif arpPacket.opcode == 2:
-            src_IP = arpPacket.src_ip
-            src = etherFrame.src
-            self.arpTable[src_IP] = src
-            self.logger.info(self.arpTable)
+        if arpPacket.opcode == 1 :
+            arp_dstIp = arpPacket.dst_ip
+            self.logger.debug('received ARP Request %s => %s (port%d)'%(etherFrame.src,etherFrame.dst,inPort))
+            self.reply_arp(datapath,etherFrame,arpPacket,arp_dstIp,inPort)
+        elif arpPacket.opcode == 2 :
+            pass
 
-    def reply_arp(self, datapath, etherFrame, arpPacket, arp_req_dstIp, inPort):
+    def reply_arp(self, datapath, etherFrame, arpPacket, arp_dstIp, inPort):
         dstIp = arpPacket.src_ip
         srcIp = arpPacket.dst_ip
         dstMac = etherFrame.src
-        self.arpTable[dstIp] = dstMac
-        self.logger.info(self.arpTable)
-        if arp_req_dstIp == ROUTER_IPADDR1:
+        self.logger.debug("ARP dstIp: %s"%arp_dstIp)
+        if arp_dstIp == ROUTER_IPADDR1:
             srcMac = ROUTER_MACADDR1
             outPort = ROUTER_PORT1
-        elif arp_req_dstIp == ROUTER_IPADDR2:
+        elif arp_dstIp == ROUTER_IPADDR2:
             srcMac = ROUTER_MACADDR2
             outPort = ROUTER_PORT2
         else:
@@ -115,7 +112,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         p.add_protocol(e)
         p.add_protocol(a)
         p.serialize()
-        actions = [datapath.ofproto_parser.OFPActionOutput(outPort)]
+        actions = [datapath.ofproto_parser.OFPActionOutput(outPort, 0)]
         #this packet is constructed by tyhe controller, so the in_port is OFPP_CONTROLLER.
         out = datapath.ofproto_parser.OFPPacketOut(
             datapath=datapath,
@@ -124,6 +121,36 @@ class SimpleSwitch13(app_manager.RyuApp):
             actions=actions,
             data=p.data)
         datapath.send_msg(out)
+
+    def _send_packet(self, datapath, port, pkt):
+        ofproto = datapath.ofproto
+        parser = datapath.ofproto_parser
+        pkt.serialize()
+        self.logger.info("packet-out %s" % (pkt,))
+        data = pkt.data
+        actions = [parser.OFPActionOutput(port=port)]
+        out = parser.OFPPacketOut(datapath=datapath,
+                                  buffer_id=ofproto.OFP_NO_BUFFER,
+                                  in_port=ofproto.OFPP_CONTROLLER,
+                                  actions=actions,
+                                  data=data)
+        datapath.send_msg(out)
+
+    def _handle_icmp(self, datapath, port, pkt_ethernet, pkt_ipv4, pkt_icmp):
+        if pkt_icmp.type != icmp.ICMP_ECHO_REQUEST:
+            return
+        pkt = packet.Packet()
+        pkt.add_protocol(ethernet.ethernet(ethertype=pkt_ethernet.ethertype,
+                                           dst=pkt_ethernet.src,
+                                           src=ROUTER_MACADDR1))
+        pkt.add_protocol(ipv4.ipv4(dst=pkt_ipv4.src,
+                                   src=ROUTER_IPADDR1,
+                                   proto=pkt_ipv4.proto))
+        pkt.add_protocol(icmp.icmp(type_=icmp.ICMP_ECHO_REPLY,
+                                   code=icmp.ICMP_ECHO_REPLY_CODE,
+                                   csum=0,
+                                   data=pkt_icmp.data))
+        self._send_packet(datapath, port, pkt)
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def _packet_in_handler(self, ev):
@@ -134,6 +161,7 @@ class SimpleSwitch13(app_manager.RyuApp):
         in_port = msg.match['in_port']
         pkt = packet.Packet(msg.data)
         eth = pkt.get_protocols(ethernet.ethernet)[0]
+        self.logger.info('%s'%eth.ethertype)
         dst = eth.dst
         src = eth.src
         dpid = datapath.id
@@ -143,31 +171,27 @@ class SimpleSwitch13(app_manager.RyuApp):
         if eth.ethertype == ether_types.ETH_TYPE_LLDP:
             # ignore lldp packet
             return
-        # self.logger.info("packet in dpid: %s, srce: %s, dest: %s, in_port: %s", dpid, src, dst, in_port)
+        self.logger.info("packet in dpid: %s, srce: %s, dest: %s, in_port: %s", dpid, src, dst, in_port)
         # learn a mac address to avoid FLOOD next time.
         self.mac_to_port[dpid][src] = in_port
         if eth.ethertype == ether_types.ETH_TYPE_ARP:
-            self.logger.info("ARP src:%s dst:%s", src, dst)
-            self.handle_arp(datapath,pkt,eth,in_port)
+            self.receive_arp(datapath,pkt,eth,in_port)
         #learn mac to ip 
         if eth.ethertype == ether_types.ETH_TYPE_IP:
             ipv4_pak = pkt.get_protocol(ipv4.ipv4)
             icmp_pak = pkt.get_protocol(icmp.icmp)
-            dst_ip = ipv4_pak.dst
-            src_ip = ipv4_pak.src
-            self.logger.info("ICMP src:%s dst:%s src_IP:%s dst_IP:%s", src, dst, src_ip, dst_ip)
-            if dst_ip in self.arpTable:
-                dst_mac = self.arpTable[dst_ip]
-                out_port = self.mac_to_port[dpid][dst_mac]
-                # actions.append( parser.OFPActionSetField(eth_src=) )
-                actions.append( parser.OFPActionSetField(eth_dst=dst_mac) )                
+            # self.logger.info('packet_in_handler: --> %s'%ipv4_pak)
+            if dst == ROUTER_MACADDR1:
+                out_port = 2
+                actions.append( parser.OFPActionSetField(eth_src=ROUTER_MACADDR2) )
+                actions.append( parser.OFPActionSetField(eth_dst='00:00:00:00:00:22') )
+
+            elif dst == ROUTER_MACADDR2:
+                out_port = 1
+                actions.append( parser.OFPActionSetField(eth_src=ROUTER_MACADDR1) )
+                actions.append( parser.OFPActionSetField(eth_dst='00:00:00:00:00:11') )
             else:
-                srcMac = "00:00:00:00:00:88"
-                srcIp = "88.88.88.88"
-                dstMac = "ff:ff:ff:ff:ff:ff"
-                dstIp = dst_ip
-                outPort = ofproto.OFPP_FLOOD
-                self.send_arp(datapath, 1, srcMac, srcIp, dstMac, dstIp, outPort)
+                self.logger.info('Not working')
                 return
             actions.append(parser.OFPActionOutput(port=out_port))
             # transfer ICMP packet, in_port = 1 
