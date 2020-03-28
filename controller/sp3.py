@@ -94,17 +94,18 @@ class MyShortestForwarding(app_manager.RyuApp):
                     return
             if dst_ip == '88.88.88.88':
                 self.arp_table[src_ip] = src
-                self.network.add_node(src)
-                # switch和主机之间的链路及switch转发端口
-                self.network.add_edge(dpid, src, attr_dict={'port':in_port})
-                self.network.add_edge(src, dpid)
-                self.paths.setdefault(src, {})
+                # self.network.add_node(src)
+                # # switch和主机之间的链路及switch转发端口
+                # self.network.add_edge(dpid, src, attr_dict={'port':in_port})
+                # self.network.add_edge(src, dpid)
+                # self.paths.setdefault(src, {})
 
         if eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
             # self.handle_ip(msg,datapath,pkt,eth,in_port)
             ipv4_pkt = pkt.get_protocol(ipv4.ipv4)
             dst_ip = ipv4_pkt.dst
             src_ip = ipv4_pkt.src
+            
             for ele in GATEWAY_IP[dpid]:
                 if IP(dst_ip).make_net('255.255.255.0') == IP(ele).make_net('255.255.255.0'):
                     if dst_ip not in self.arp_table:
@@ -116,7 +117,7 @@ class MyShortestForwarding(app_manager.RyuApp):
                         return
                     else:
                         dst = self.arp_table[dst_ip]
-                        out_port = datapath.ofproto.OFPP_FLOOD
+                        out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
                         actions = [ofp_parser.OFPActionSetField(eth_dst=dst)]
                         actions.append(ofp_parser.OFPActionOutput(out_port))
                         out = ofp_parser.OFPPacketOut(
@@ -125,7 +126,7 @@ class MyShortestForwarding(app_manager.RyuApp):
                         datapath.send_msg(out)
                         return
                 else:
-                    out_port = datapath.ofproto.OFPP_FLOOD
+                    out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
 
         # out_port = self.get_out_port(datapath,src,dst,in_port)
         actions = [ofp_parser.OFPActionOutput(out_port)]
@@ -166,29 +167,15 @@ class MyShortestForwarding(app_manager.RyuApp):
         self.network.add_edges_from(links)
         print (self.network.edges())
 
-    def get_out_port(self,datapath,src,dst,in_port):
-        '''
-        datapath: is current datapath info
-        src,dst: both are the host info
-        in_port: is current datapath in_port
-        '''
+    def get_out_port(self,datapath,src_ip,dst_ip,in_port):
         dpid = datapath.id
-
-        #the first :Doesn`t find src host at graph
-        if src not in self.network:
-            self.network.add_node(src)
-            # switch和主机之间的链路及switch转发端口
-            self.network.add_edge(dpid, src, attr_dict={'port':in_port})
-            self.network.add_edge(src, dpid)
-            self.paths.setdefault(src, {})
-
         #second: search the shortest path, from src to dst host
-        if dst in self.network:
-            if dst not in self.paths[src]:    #if not cache src to dst path,then to find it
-                path = nx.shortest_path(self.network,src,dst)
-                self.paths[src][dst]=path
+        if dst_ip in self.network:
+            if dst_ip not in self.paths[src_ip]:    #if not cache src to dst path,then to find it
+                path = nx.shortest_path(self.network,src_ip,dst_ip)
+                self.paths[src_ip][dst_ip]=path
 
-            path = self.paths[src][dst]
+            path = self.paths[src_ip][dst_ip]
             next_hop = path[path.index(dpid)+1]
             # switch和主机之间的端口也能找到
             out_port = self.network[dpid][next_hop]['attr_dict']['port']
