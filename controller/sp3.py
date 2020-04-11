@@ -13,7 +13,8 @@ import networkx as nx
 
 from IPy import IP
 
-GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
+GATEWAY_IP = {1:['192.168.1.10','192.168.2.10']}
+# GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
 
 class MyShortestForwarding(app_manager.RyuApp):
     '''
@@ -92,7 +93,7 @@ class MyShortestForwarding(app_manager.RyuApp):
                 if dst_ip in arr:
                     self.reply_arp(datapath,eth_pkt,arp_pkt,src,in_port)
                     return
-            if dst_ip == '88.88.88.88':
+            if dst_ip == '66.66.66.66':
                 self.arp_table[src_ip] = src
                 # self.network.add_node(src)
                 # # switch和主机之间的链路及switch转发端口
@@ -109,8 +110,8 @@ class MyShortestForwarding(app_manager.RyuApp):
             for ele in GATEWAY_IP[dpid]:
                 if IP(dst_ip).make_net('255.255.255.0') == IP(ele).make_net('255.255.255.0'):
                     if dst_ip not in self.arp_table:
-                        src = "00:00:00:00:00:88"
-                        src_ip = "88.88.88.88"
+                        src = "00:00:00:00:00:66"
+                        src_ip = "66.66.66.66"
                         dst = "ff:ff:ff:ff:ff:ff"
                         out_port = ofproto.OFPP_FLOOD
                         self.send_arp(datapath, 1, src, src_ip, dst, dst_ip, out_port)
@@ -118,7 +119,9 @@ class MyShortestForwarding(app_manager.RyuApp):
                     else:
                         dst = self.arp_table[dst_ip]
                         out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
+                        
                         actions = [ofp_parser.OFPActionSetField(eth_dst=dst)]
+                        # actions.append(ofp_parser.OFPActionSetField(eth_src=self.switches[dpid][out_port]))
                         actions.append(ofp_parser.OFPActionOutput(out_port))
                         out = ofp_parser.OFPPacketOut(
                                     datapath=datapath,buffer_id=msg.buffer_id,in_port=in_port,
