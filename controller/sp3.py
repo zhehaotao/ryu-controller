@@ -13,8 +13,8 @@ import networkx as nx
 
 from IPy import IP
 
-GATEWAY_IP = {1:['192.168.1.10','192.168.2.10']}
-# GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
+# GATEWAY_IP = {1:['192.168.1.10','192.168.2.10']}
+GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
 
 class MyShortestForwarding(app_manager.RyuApp):
     '''
@@ -91,15 +91,17 @@ class MyShortestForwarding(app_manager.RyuApp):
             self.arp_table[src_ip] = src
             for arr in GATEWAY_IP.values():
                 if dst_ip in arr:
-                    self.reply_arp(datapath,eth_pkt,arp_pkt,src,in_port)
+                    self.reply_arp(datapath,eth_pkt,arp_pkt,src_ip,in_port)
                     return
             if dst_ip == '66.66.66.66':
                 self.arp_table[src_ip] = src
-                # self.network.add_node(src)
-                # # switch和主机之间的链路及switch转发端口
-                # self.network.add_edge(dpid, src, attr_dict={'port':in_port})
-                # self.network.add_edge(src, dpid)
-                # self.paths.setdefault(src, {})
+                print(dpid)
+                self.network.add_node(src_ip)
+                # switch和主机之间的链路及switch转发端口
+                self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
+                self.network.add_edge(src_ip, dpid)
+                self.paths.setdefault(src_ip, {})
+                return
 
         if eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
             # self.handle_ip(msg,datapath,pkt,eth,in_port)
@@ -121,12 +123,14 @@ class MyShortestForwarding(app_manager.RyuApp):
                         out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
                         
                         actions = [ofp_parser.OFPActionSetField(eth_dst=dst)]
-                        # actions.append(ofp_parser.OFPActionSetField(eth_src=self.switches[dpid][out_port]))
+                        actions.append(ofp_parser.OFPActionSetField(eth_src=self.switches[dpid][out_port]))
                         actions.append(ofp_parser.OFPActionOutput(out_port))
                         out = ofp_parser.OFPPacketOut(
                                     datapath=datapath,buffer_id=msg.buffer_id,in_port=in_port,
                                     actions=actions,data=msg.data)
                         datapath.send_msg(out)
+                        match = ofp_parser.OFPMatch(in_port=in_port, eth_type=ether_types.ETH_TYPE_IP, eth_dst=dst, eth_src=src)
+                        self.add_flow(datapath, 1, match, actions)
                         return
                 else:
                     out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
@@ -182,21 +186,21 @@ class MyShortestForwarding(app_manager.RyuApp):
             next_hop = path[path.index(dpid)+1]
             # switch和主机之间的端口也能找到
             out_port = self.network[dpid][next_hop]['attr_dict']['port']
-
+            
         else:
-            out_port = datapath.ofproto.OFPP_FLOOD    #By flood, to find dst, when dst get packet, dst will send a new back,the graph will record dst info
+            out_port = datapath.ofproto.OFPP_FLOOD   #By flood, to find dst, when dst get packet, dst will send a new back,the graph will record dst info
         print("paths: ",self.paths)
         return out_port
 
     
-    def reply_arp(self, datapath, eth_pkt, arp_pkt, src, in_port):
+    def reply_arp(self, datapath, eth_pkt, arp_pkt, src_ip, in_port):
         dpid = datapath.id
-        if src not in self.network:
-            self.network.add_node(src)
+        if src_ip not in self.network:
+            self.network.add_node(src_ip)
             # switch和主机之间的链路及switch转发端口
-            self.network.add_edge(dpid, src, attr_dict={'port':in_port})
-            self.network.add_edge(src, dpid)
-            self.paths.setdefault(src, {})
+            self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
+            self.network.add_edge(src_ip, dpid)
+            self.paths.setdefault(src_ip, {})
         reply_dst_ip = arp_pkt.src_ip
         reply_src_ip = arp_pkt.dst_ip
         reply_dst_mac = eth_pkt.src
