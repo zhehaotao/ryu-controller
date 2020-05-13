@@ -14,7 +14,9 @@ import networkx as nx
 from IPy import IP
 
 # GATEWAY_IP = {1:['192.168.1.10','192.168.2.10']}
-GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.1.10'],3:['192.168.2.10'],4:['192.168.2.10']}
+GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
+# GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.1.10'],3:['192.168.2.10'],4:['192.168.2.10']}
+# GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.1.10'],3:['192.168.1.10']}
 
 class MyShortestForwarding(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -74,19 +76,25 @@ class MyShortestForwarding(app_manager.RyuApp):
             src_ip = arp_pkt.src_ip
             dst_ip = arp_pkt.dst_ip
             self.arp_table[src_ip] = src
-            for arr in GATEWAY_IP.values():
-                if dst_ip in arr:
-                    self.reply_arp(datapath,eth_pkt,arp_pkt,src_ip,in_port)
-                    return
-            if dst_ip == '66.66.66.66':
-                self.arp_table[src_ip] = src
-                # print(dpid)
+            if src_ip not in self.network and src_ip!='66.66.66.66':
                 self.network.add_node(src_ip)
                 # switch和主机之间的链路及switch转发端口
                 self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
                 self.network.add_edge(src_ip, dpid)
                 self.paths.setdefault(src_ip, {})
-                return
+            for arr in GATEWAY_IP.values():
+                if dst_ip in arr:
+                    self.reply_arp(datapath,eth_pkt,arp_pkt,src_ip,in_port)
+                    return
+            # if arp_pkt.opcode == 2:
+            #     self.arp_table[src_ip] = src
+            #     # print(dpid)
+            #     self.network.add_node(src_ip)
+            #     # switch和主机之间的链路及switch转发端口
+            #     self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
+            #     self.network.add_edge(src_ip, dpid)
+            #     self.paths.setdefault(src_ip, {})
+            #     return
 
         if eth_pkt.ethertype == ether_types.ETH_TYPE_IP:
             # self.handle_ip(msg,datapath,pkt,eth,in_port)
@@ -106,7 +114,7 @@ class MyShortestForwarding(app_manager.RyuApp):
                     else:
                         dst = self.arp_table[dst_ip]
                         out_port = self.get_out_port(datapath,src_ip,dst_ip,in_port)
-                        
+                        print(out_port)
                         actions = [ofp_parser.OFPActionSetField(eth_dst=dst)]
                         actions.append(ofp_parser.OFPActionSetField(eth_src=self.switches[dpid][out_port]))
                         actions.append(ofp_parser.OFPActionOutput(out_port))
@@ -146,7 +154,7 @@ class MyShortestForwarding(app_manager.RyuApp):
             self.switches.setdefault(switch.dp.id, {})
             for port in switch.ports:
                 self.switches[switch.dp.id][port.port_no] = port.hw_addr
-        # print (self.switches)
+        print ('switches',self.switches)
         # switches = [switch.dp.id for switch in switch_list]
         self.network.add_nodes_from(self.switches)
         links_list = get_link(self.topology_api_app, None)
@@ -155,7 +163,7 @@ class MyShortestForwarding(app_manager.RyuApp):
         # print (links)
         self.network.add_edges_from(links)
         links=[(link.dst.dpid,link.src.dpid,{'attr_dict':{'port':link.dst.port_no}}) for link in links_list]
-        # print (links)
+        print ('links',links)
         self.network.add_edges_from(links)
         # print (self.network.edges())
 
@@ -180,12 +188,12 @@ class MyShortestForwarding(app_manager.RyuApp):
     
     def reply_arp(self, datapath, eth_pkt, arp_pkt, src_ip, in_port):
         dpid = datapath.id
-        if src_ip not in self.network:
-            self.network.add_node(src_ip)
-            # switch和主机之间的链路及switch转发端口
-            self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
-            self.network.add_edge(src_ip, dpid)
-            self.paths.setdefault(src_ip, {})
+        # if src_ip not in self.network:
+        #     self.network.add_node(src_ip)
+        #     # switch和主机之间的链路及switch转发端口
+        #     self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
+        #     self.network.add_edge(src_ip, dpid)
+        #     self.paths.setdefault(src_ip, {})
         reply_dst_ip = arp_pkt.src_ip
         reply_src_ip = arp_pkt.dst_ip
         reply_dst_mac = eth_pkt.src
