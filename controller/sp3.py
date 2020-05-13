@@ -14,12 +14,9 @@ import networkx as nx
 from IPy import IP
 
 # GATEWAY_IP = {1:['192.168.1.10','192.168.2.10']}
-GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.2.10'],3:['192.168.3.10','192.168.4.10']}
+GATEWAY_IP = {1:['192.168.1.10'], 2:['192.168.1.10'],3:['192.168.2.10'],4:['192.168.2.10']}
 
 class MyShortestForwarding(app_manager.RyuApp):
-    '''
-    class to achive shortest path to forward, based on minimum hop count
-    '''
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
 
     def __init__(self,*args,**kwargs):
@@ -34,9 +31,6 @@ class MyShortestForwarding(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPSwitchFeatures,CONFIG_DISPATCHER)
     def switch_features_handler(self,ev):
-        '''
-        manage the initial link between switch and controller
-        '''
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
@@ -50,9 +44,6 @@ class MyShortestForwarding(app_manager.RyuApp):
         self.add_flow(datapath, 0, match, actions)
 
     def add_flow(self,datapath,priority,match,actions):
-        '''
-        fulfil the function to add flow entry to switch
-        '''
         ofproto = datapath.ofproto
         ofp_parser = datapath.ofproto_parser
 
@@ -65,10 +56,6 @@ class MyShortestForwarding(app_manager.RyuApp):
 
     @set_ev_cls(ofp_event.EventOFPPacketIn,MAIN_DISPATCHER)
     def packet_in_handler(self,ev):
-        '''
-        manage the packet which comes from switch
-        '''
-        #first get event infomation
         msg = ev.msg
         datapath = msg.datapath
         ofproto = datapath.ofproto
@@ -76,11 +63,9 @@ class MyShortestForwarding(app_manager.RyuApp):
 
         in_port = msg.match['in_port']
         dpid = datapath.id
-
-        #second get ethernet protocol message
         pkt = packet.Packet(msg.data)
         eth_pkt = pkt.get_protocol(ethernet.ethernet)
-        src = eth_pkt.src     #note: mac info willn`t  change in network
+        src = eth_pkt.src
         dst = eth_pkt.dst
         out_port = datapath.ofproto.OFPP_FLOOD
 
@@ -95,7 +80,7 @@ class MyShortestForwarding(app_manager.RyuApp):
                     return
             if dst_ip == '66.66.66.66':
                 self.arp_table[src_ip] = src
-                print(dpid)
+                # print(dpid)
                 self.network.add_node(src_ip)
                 # switch和主机之间的链路及switch转发端口
                 self.network.add_edge(dpid, src_ip, attr_dict={'port':in_port})
@@ -161,18 +146,18 @@ class MyShortestForwarding(app_manager.RyuApp):
             self.switches.setdefault(switch.dp.id, {})
             for port in switch.ports:
                 self.switches[switch.dp.id][port.port_no] = port.hw_addr
-        print (self.switches)
+        # print (self.switches)
         # switches = [switch.dp.id for switch in switch_list]
         self.network.add_nodes_from(self.switches)
         links_list = get_link(self.topology_api_app, None)
         #print links_list
         links=[(link.src.dpid,link.dst.dpid,{'attr_dict':{'port':link.src.port_no}}) for link in links_list]
-        print (links)
+        # print (links)
         self.network.add_edges_from(links)
         links=[(link.dst.dpid,link.src.dpid,{'attr_dict':{'port':link.dst.port_no}}) for link in links_list]
-        print (links)
+        # print (links)
         self.network.add_edges_from(links)
-        print (self.network.edges())
+        # print (self.network.edges())
 
     def get_out_port(self,datapath,src_ip,dst_ip,in_port):
         dpid = datapath.id
